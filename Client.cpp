@@ -4,10 +4,9 @@
 #include <ws2tcpip.h>
 #pragma comment(lib, "Ws2_32.lib")
 
-#define BUFFER_SIZE 1024
+#define PACKET_SIZE 1024
+#define BUFFER_SIZE 1020
 #define TIMEOUT 2000
-
-#define _WINSOCK_DEPRECATED_NO_WARNINGS
 
 using namespace std;
 
@@ -22,7 +21,7 @@ int main(int argc, char** argv)
     }
 
     SOCKET clientSocket = socket(AF_INET, SOCK_DGRAM, 0);
-    if (clientSocket == -1) {
+    if (clientSocket == INVALID_SOCKET) {
         cout << "Не удалось открыть сокет" << endl;
         WSACleanup();
         return -1;
@@ -32,11 +31,21 @@ int main(int argc, char** argv)
     clientAddress.sin_family = AF_INET;
     clientAddress.sin_port = 0;
     clientAddress.sin_addr.s_addr = INADDR_ANY;
-    if (bind(clientSocket, (sockaddr*)&clientAddress, sizeof(sockaddr)) == -1) {
+    if (bind(clientSocket, (sockaddr*)&clientAddress, sizeof(sockaddr)) == SOCKET_ERROR) {
         cout << "Не удалось связать сокет" << endl;
+        closesocket(clientSocket);
         WSACleanup();
         return -2;
     }
+    int clientAddressLength = sizeof(sockaddr_in); 
+    if (getsockname(clientSocket, (sockaddr*) &clientAddress, &clientAddressLength) == SOCKET_ERROR) {
+        cout << "Не удалось получить адрес" << endl;
+        closesocket(clientSocket);
+        WSACleanup();
+        return -3;
+    } 
+
+    cout << "Клиент работает на порте № " << ntohs(clientAddress.sin_port) << endl;
 
     sockaddr_in serverAddress;
     serverAddress.sin_family = AF_INET;
@@ -45,30 +54,42 @@ int main(int argc, char** argv)
     int serverAddressLength = sizeof(sockaddr_in);
 
     int timeout = TIMEOUT;
-    setsockopt(clientSocket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(int));
+    if (setsockopt(clientSocket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(int)) == SOCKET_ERROR) {
+        cout << "Не удалось настроить сокет" << endl;
+        return -4;
+    }
 
-    ifstream file("some.txt", ios::in);
-    char buffer[BUFFER_SIZE];
+    ifstream file(string(argv[3]) + ".txt", ios::in | ios::binary);
+    if (!file.is_open()) {
+        cout << "Не удалось открыть файл" <<  string(argv[3]) << ".txt" << endl;
+        closesocket(clientSocket);
+        WSACleanup();
+        return -5;
+    }
+    char packet[PACKET_SIZE], buffer[BUFFER_SIZE];
     
+    int clientIndex = atoi(argv[3]);
+
     while (true) {
-        file.read(buffer, BUFFER_SIZE - 4);
+        file.read(buffer, BUFFER_SIZE);
         int bytesRead = file.gcount();
         if (bytesRead <= 0) {
+            cout << "Передача завершена" << endl;
             break;
         }
-        memmove(buffer + 4, buffer, bytesRead);
-        cout.write(buffer + 4, bytesRead);
+        cout.write(buffer, bytesRead);
         cout << endl;
-        int clientIndex = atoi(argv[3]);
-        memcpy(buffer, &clientIndex, sizeof(int));
+        memcpy(packet, &clientIndex, sizeof(int));
+        memcpy(packet + 4, buffer, bytesRead);
         int bytesSent, receivedBytes, attempts = 0;
         do {
+            Sleep(100);
             attempts += 1;
             if (attempts > 1) {
                 cout << "Попытка отправки № " << attempts << endl;
             }
-            bytesSent = sendto(clientSocket, buffer, bytesRead + 4, 0, (sockaddr*)&serverAddress, serverAddressLength);
-            receivedBytes = recvfrom(clientSocket, buffer, 3, 0, (sockaddr*)&serverAddress, &serverAddressLength);
+            bytesSent = sendto(clientSocket, packet, bytesRead + 4, 0, (sockaddr*)&serverAddress, serverAddressLength);
+            receivedBytes = recvfrom(clientSocket, packet, 3, 0, (sockaddr*)&serverAddress, &serverAddressLength);
             if (receivedBytes != SOCKET_ERROR) {
                 cout << "Получено подтверждение" << endl;
             } else if (attempts == 5) {
@@ -79,6 +100,5 @@ int main(int argc, char** argv)
 
     closesocket(clientSocket);
     WSACleanup();
-
     return 0;
 }
