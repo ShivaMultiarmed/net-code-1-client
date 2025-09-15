@@ -2,6 +2,7 @@
 #include <fstream>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <string>
 #pragma comment(lib, "Ws2_32.lib")
 
 #define PACKET_SIZE 1024
@@ -10,9 +11,15 @@
 
 using namespace std;
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     setlocale(LC_ALL, "Russian");
+
+    if (argc < 4) {
+        cout << "Используйте: Client.exe <ip> <port> <index>" << endl;
+        return -10;
+    }
+
+    cout << "Клиент №" << argv[3] << endl;
 
     WSADATA wsadata;
     if (WSAStartup(MAKEWORD(2, 2), &wsadata) != 0) {
@@ -57,15 +64,20 @@ int main(int argc, char** argv)
     if (setsockopt(clientSocket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(int)) == SOCKET_ERROR) {
         cout << "Не удалось настроить сокет" << endl;
         return -4;
+    } else {
+        cout << "Сокет настроен" << endl;
     }
-
-    ifstream file(string(argv[3]) + ".txt", ios::in | ios::binary);
+    string fileName = to_string(atoi(argv[3])) + ".txt";
+    ifstream file(fileName, ios::in | ios::binary);
     if (!file.is_open()) {
-        cout << "Не удалось открыть файл" <<  string(argv[3]) << ".txt" << endl;
+        cout << "Не удалось открыть файл" <<  fileName << endl;
         closesocket(clientSocket);
         WSACleanup();
         return -5;
+    } else {
+        cout << "Файл открыт" << endl;
     }
+
     char packet[PACKET_SIZE], buffer[BUFFER_SIZE];
     
     int clientIndex = atoi(argv[3]);
@@ -77,6 +89,7 @@ int main(int argc, char** argv)
             cout << "Передача завершена" << endl;
             break;
         }
+        cout << "Из файла прочитано: " << bytesRead << " байт" << endl;
         cout.write(buffer, bytesRead);
         cout << endl;
         memcpy(packet, &clientIndex, sizeof(int));
